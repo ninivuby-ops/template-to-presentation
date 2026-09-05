@@ -45,21 +45,21 @@ export const inspectTemplate = createServerFn({ method: "POST" })
     };
   });
 
-/** Step 2 — generate content and inject it into the very same file. */
+/** Step 2 — draft the content. Nothing is written to the file yet: the user edits first. */
 export const generateDeck = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => Input.parse(d))
   .handler(async ({ data }) => {
-    const { extractPlaceholders, fillTemplate } = await import("./pptx.server");
+    const { extractPlaceholders, extractMedia } = await import("./pptx.server");
     const bytes = b64ToBytes(data.fileBase64);
     const { placeholders, slideCount } = extractPlaceholders(bytes);
+    const media = extractMedia(bytes);
 
     if (!placeholders.length) {
       return {
         slideCount,
-        filled: 0,
-        placeholders: [] as { id: string; slide: number; shape: string; text: string }[],
-        fileBase64: data.fileBase64,
-        note: "No empty or marked placeholders were found in this template, so nothing was changed.",
+        media,
+        placeholders: [] as { id: string; slide: number; shape: string; kind: string; text: string }[],
+        note: "No empty or marked placeholders were found in this template, so there is no text to write.",
       };
     }
 
@@ -126,21 +126,45 @@ export const generateDeck = createServerFn({ method: "POST" })
       .safeParse(JSON.parse(raw));
     if (!parsed.success) throw new Error("The AI response could not be read. Please try again.");
 
-    const allowed = new Set(placeholders.map((p) => p.id));
     const values: Record<string, string> = {};
-    for (const item of parsed.data.items) {
-      if (allowed.has(item.id) && item.text.trim()) values[item.id] = item.text.trim();
-    }
-
-    const { bytes: out, filled } = fillTemplate(bytes, values);
+    for (const item of parsed.data.items) values[item.id] = item.text.trim();
 
     return {
       slideCount,
-      filled,
-      placeholders: placeholders
-        .filter((p) => values[p.id])
-        .map((p) => ({ id: p.id, slide: p.slide, shape: p.shape, text: values[p.id] })),
-      fileBase64: bytesToB64(out),
+      media,
+      placeholders: placeholders.map((p) => ({
+        id: p.id,
+        slide: p.slide,
+        shape: p.shape,
+        kind: p.kind,
+        text: values[p.id] ?? p.current,
+      })),
       note: "",
     };
+  });
+
+const BuildInput = z.object({
+  fileBase64: z.string().min(10),
+  items: z.array(z.object({ id: z.string(), text: z.string().max(2000) })).default([]),
+  media: z
+    .array(z.object({ id: z.string(), fileBase64: z.string().min(10) }))
+    .max(40)
+    .default([]),
+});
+
+/** Step 3 — write the edited text and swapped media into the very same file. */
+export const buildDeckFile = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => BuildInput.parse(d))
+  .handler(async ({ data }) => {
+    const { buildDeck } = await import("./pptx.server");
+    const bytes = b64ToBytes(data.fileBase64);
+
+    const values: Record<string, string> = {};
+    for (const item of data.items) if (item.text.trim()) values[item.id] = item.text.trim();
+
+    const media: Record<string, Uint8Array> = {};
+    for (const m of data.media) media[m.id] = b64ToBytes(m.fileBase64);
+
+    const { bytes: out, filled, replacedMedia } = buildDeck(bytes, values, media);
+    return { filled, replacedMedia, fileBase64: bytesToB64(out) };
   });
