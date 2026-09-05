@@ -244,12 +244,16 @@ function Index() {
             <Textarea
               id="det"
               value={details}
-              onChange={(e) => setDetails(e.target.value)}
-              rows={5}
+              onChange={(e) => setDetails(e.target.value.slice(0, 40000))}
+              rows={7}
               placeholder="Paste any real figures, names or context you want included."
               className="mt-2"
             />
+            <p className="mt-1 text-right text-xs text-muted-foreground">
+              {details.length.toLocaleString()} / 40,000 characters
+            </p>
           </div>
+
 
           <Button type="submit" disabled={busy} className="w-full" size="lg">
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
