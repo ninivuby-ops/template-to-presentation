@@ -62,7 +62,7 @@ export function extractPlaceholders(bytes: Uint8Array) {
   const placeholders: Placeholder[] = [];
 
   slides.forEach((name, si) => {
-    const xml = strFromU8(files[name]);
+    const xml = strFromU8(files[name]!);
     const shapes = matchBlocks(xml, "p:sp");
     const slideTexts = shapes
       .map((s) => matchBlocks(s.text, "a:p").map((p) => paraText(p.text)).join(" \n"))
@@ -104,17 +104,17 @@ export function fillTemplate(bytes: Uint8Array, values: Record<string, string>) 
   let filled = 0;
 
   slides.forEach((name, si) => {
-    let xml = strFromU8(files[name]);
+    let xml = strFromU8(files[name]!);
     const shapes = matchBlocks(xml, "p:sp");
     // Rebuild from the end so earlier offsets stay valid.
     for (let shi = shapes.length - 1; shi >= 0; shi--) {
-      const sp = shapes[shi];
+      const sp = shapes[shi]!;
       let spXml = sp.text;
       const paras = matchBlocks(spXml, "a:p");
       for (let pi = paras.length - 1; pi >= 0; pi--) {
         const value = values[`s${si + 1}_sh${shi}_p${pi}`];
         if (!value) continue;
-        const p = paras[pi];
+        const p = paras[pi]!;
         const replaced = setParagraphText(p.text, value);
         if (replaced === p.text) continue;
         spXml = spXml.slice(0, p.start) + replaced + spXml.slice(p.end);
@@ -136,9 +136,9 @@ function setParagraphText(para: string, value: string) {
   if (runs.length) {
     let out = para;
     for (let i = runs.length - 1; i >= 1; i--) {
-      out = out.slice(0, runs[i].start) + out.slice(runs[i].end);
+      out = out.slice(0, runs[i]!.start) + out.slice(runs[i]!.end);
     }
-    const first = matchBlocks(out, "a:r")[0];
+    const first = matchBlocks(out, "a:r")[0]!;
     const newRun = first.text.replace(
       /<a:t>[\s\S]*?<\/a:t>/,
       `<a:t>${text}</a:t>`,

@@ -63,8 +63,14 @@ function Index() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return toast.error("Please choose a .pptx template first.");
-    if (topic.trim().length < 3) return toast.error("Please describe the topic.");
+    if (!file) {
+      toast.error("Please choose a .pptx template first.");
+      return;
+    }
+    if (topic.trim().length < 3) {
+      toast.error("Please describe the topic.");
+      return;
+    }
     setBusy(true);
     setResult(null);
     try {
