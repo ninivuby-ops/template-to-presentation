@@ -162,7 +162,7 @@ export type MediaItem = {
   slides: number[];
   bytes: number;
   /** small previews only, as a data URL */
-  preview?: string;
+  preview?: string | undefined;
 };
 
 const MIME: Record<string, string> = {
@@ -255,8 +255,8 @@ export function buildDeck(
   let replacedMedia = 0;
   for (const key of mediaKeys) {
     if (!files[key]) continue;
-    files[key] = media[key]!;
+    files[key] = new Uint8Array(media[key]!);
     replacedMedia++;
   }
-  return { bytes: zipSync(files, { level: 6 }), filled, replacedMedia };
+  return { bytes: new Uint8Array(zipSync(files, { level: 6 })), filled, replacedMedia };
 }

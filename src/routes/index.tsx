@@ -35,7 +35,7 @@ export const Route = createFileRoute("/")({
 });
 
 type Result = Awaited<ReturnType<typeof generateDeck>>;
-type MediaSwap = { name: string; fileBase64: string; preview?: string };
+type MediaSwap = { name: string; fileBase64: string; preview?: string | undefined };
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
