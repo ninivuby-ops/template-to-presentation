@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { UploadCloud, FileDown, Loader2, ShieldCheck } from "lucide-react";
-import { generateDeck } from "@/lib/deck.functions";
+import { UploadCloud, FileDown, Loader2, ShieldCheck, Image as ImageIcon, Film, Music, RotateCcw } from "lucide-react";
+import { generateDeck, buildDeckFile } from "@/lib/deck.functions";
 import hero from "@/assets/hero.jpg";
 import architecture from "@/assets/architecture.jpg";
 
@@ -35,6 +35,9 @@ export const Route = createFileRoute("/")({
 });
 
 type Result = Awaited<ReturnType<typeof generateDeck>>;
+type MediaSwap = { name: string; fileBase64: string; preview?: string };
+
+const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const rules = [
   "Only your uploaded file is used — no template of ours.",
@@ -46,12 +49,17 @@ const rules = [
 
 function Index() {
   const run = useServerFn(generateDeck);
+  const build = useServerFn(buildDeckFile);
   const [file, setFile] = useState<File | null>(null);
   const [topic, setTopic] = useState("");
   const [audience, setAudience] = useState("");
   const [details, setDetails] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [swaps, setSwaps] = useState<Record<string, MediaSwap>>({});
+  const [building, setBuilding] = useState(false);
+  const [baseFile, setBaseFile] = useState("");
 
   const readBase64 = (f: File) =>
     new Promise<string>((resolve, reject) => {
@@ -79,8 +87,13 @@ function Index() {
         data: { fileBase64, fileName: file.name, topic, audience, details },
       });
       setResult(res);
+      setBaseFile(fileBase64);
+      setDraft(Object.fromEntries(res.placeholders.map((p) => [p.id, p.text])));
+      setSwaps({});
       toast.success(
-        res.filled ? `Filled ${res.filled} placeholders across ${res.slideCount} slides.` : "Finished.",
+        res.placeholders.length
+          ? `Drafted ${res.placeholders.length} placeholders — edit them below, then build the deck.`
+          : "Finished.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
@@ -89,21 +102,60 @@ function Index() {
     }
   };
 
-  const download = () => {
-    if (!result || !file) return;
-    const bin = atob(result.fileBase64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const url = URL.createObjectURL(
-      new Blob([bytes], {
-        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = file.name.replace(/\.pptx$/i, "") + "-filled.pptx";
-    a.click();
-    URL.revokeObjectURL(url);
+  const pickMedia = (id: string, f: File | null) => {
+    if (!f) return;
+    if (f.size > 12_000_000) {
+      toast.error("Please choose a file under 12 MB.");
+      return;
+    }
+    const r = new FileReader();
+    r.onload = () => {
+      const url = String(r.result);
+      setSwaps((s) => ({
+        ...s,
+        [id]: {
+          name: f.name,
+          fileBase64: url.split(",")[1] ?? "",
+          preview: f.type.startsWith("image/") ? url : undefined,
+        },
+      }));
+    };
+    r.readAsDataURL(f);
+  };
+
+  const buildAndDownload = async () => {
+    if (!result || !file || !baseFile) return;
+    setBuilding(true);
+    try {
+      const out = await build({
+        data: {
+          fileBase64: baseFile,
+          items: Object.entries(draft).map(([id, text]) => ({ id, text })),
+          media: Object.entries(swaps).map(([id, m]) => ({ id, fileBase64: m.fileBase64 })),
+        },
+      });
+      const bin = atob(out.fileBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(
+        new Blob([bytes], {
+          type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        }),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name.replace(/\.pptx$/i, "") + "-filled.pptx";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(
+        `Built with ${out.filled} placeholders filled` +
+          (out.replacedMedia ? ` and ${out.replacedMedia} media files replaced.` : "."),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not build the deck.");
+    } finally {
+      setBuilding(false);
+    }
   };
 
   return (
