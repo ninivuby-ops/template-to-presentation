@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { UploadCloud, FileDown, Loader2, ShieldCheck } from "lucide-react";
-import { generateDeck } from "@/lib/deck.functions";
+import { UploadCloud, FileDown, Loader2, ShieldCheck, Image as ImageIcon, Film, Music, RotateCcw } from "lucide-react";
+import { generateDeck, buildDeckFile } from "@/lib/deck.functions";
 import hero from "@/assets/hero.jpg";
 import architecture from "@/assets/architecture.jpg";
 
@@ -35,6 +35,11 @@ export const Route = createFileRoute("/")({
 });
 
 type Result = Awaited<ReturnType<typeof generateDeck>>;
+type MediaSwap = { name: string; fileBase64: string; preview?: string | undefined };
+
+const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
+
+const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const rules = [
   "Only your uploaded file is used — no template of ours.",
@@ -46,12 +51,17 @@ const rules = [
 
 function Index() {
   const run = useServerFn(generateDeck);
+  const build = useServerFn(buildDeckFile);
   const [file, setFile] = useState<File | null>(null);
   const [topic, setTopic] = useState("");
   const [audience, setAudience] = useState("");
   const [details, setDetails] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [swaps, setSwaps] = useState<Record<string, MediaSwap>>({});
+  const [building, setBuilding] = useState(false);
+  const [baseFile, setBaseFile] = useState("");
 
   const readBase64 = (f: File) =>
     new Promise<string>((resolve, reject) => {
@@ -67,6 +77,10 @@ function Index() {
       toast.error("Please choose a .pptx template first.");
       return;
     }
+    if (wordCount(details) > 40000) {
+      toast.error("Please keep the facts and notes under 40,000 words.");
+      return;
+    }
     if (topic.trim().length < 3) {
       toast.error("Please describe the topic.");
       return;
@@ -79,8 +93,13 @@ function Index() {
         data: { fileBase64, fileName: file.name, topic, audience, details },
       });
       setResult(res);
+      setBaseFile(fileBase64);
+      setDraft(Object.fromEntries(res.placeholders.map((p) => [p.id, p.text])));
+      setSwaps({});
       toast.success(
-        res.filled ? `Filled ${res.filled} placeholders across ${res.slideCount} slides.` : "Finished.",
+        res.placeholders.length
+          ? `Drafted ${res.placeholders.length} placeholders — edit them below, then build the deck.`
+          : "Finished.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
@@ -89,21 +108,60 @@ function Index() {
     }
   };
 
-  const download = () => {
-    if (!result || !file) return;
-    const bin = atob(result.fileBase64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const url = URL.createObjectURL(
-      new Blob([bytes], {
-        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = file.name.replace(/\.pptx$/i, "") + "-filled.pptx";
-    a.click();
-    URL.revokeObjectURL(url);
+  const pickMedia = (id: string, f: File | null) => {
+    if (!f) return;
+    if (f.size > 12_000_000) {
+      toast.error("Please choose a file under 12 MB.");
+      return;
+    }
+    const r = new FileReader();
+    r.onload = () => {
+      const url = String(r.result);
+      setSwaps((s) => ({
+        ...s,
+        [id]: {
+          name: f.name,
+          fileBase64: url.split(",")[1] ?? "",
+          preview: f.type.startsWith("image/") ? url : undefined,
+        },
+      }));
+    };
+    r.readAsDataURL(f);
+  };
+
+  const buildAndDownload = async () => {
+    if (!result || !file || !baseFile) return;
+    setBuilding(true);
+    try {
+      const out = await build({
+        data: {
+          fileBase64: baseFile,
+          items: Object.entries(draft).map(([id, text]) => ({ id, text })),
+          media: Object.entries(swaps).map(([id, m]) => ({ id, fileBase64: m.fileBase64 })),
+        },
+      });
+      const bin = atob(out.fileBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(
+        new Blob([bytes], {
+          type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        }),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name.replace(/\.pptx$/i, "") + "-filled.pptx";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(
+        `Built with ${out.filled} placeholders filled` +
+          (out.replacedMedia ? ` and ${out.replacedMedia} media files replaced.` : "."),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not build the deck.");
+    } finally {
+      setBuilding(false);
+    }
   };
 
   return (
@@ -193,11 +251,15 @@ function Index() {
               id="det"
               value={details}
               onChange={(e) => setDetails(e.target.value)}
-              rows={5}
+              rows={7}
               placeholder="Paste any real figures, names or context you want included."
               className="mt-2"
             />
+            <p className="mt-1 text-right text-xs text-muted-foreground">
+              {wordCount(details).toLocaleString()} / 40,000 words
+            </p>
           </div>
+
 
           <Button type="submit" disabled={busy} className="w-full" size="lg">
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -206,31 +268,99 @@ function Index() {
         </form>
 
         {result ? (
-          <div className="mt-8 rounded-2xl border border-border bg-card p-6 shadow-panel">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  {result.filled} placeholders filled · {result.slideCount} slides kept
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {result.note || "Structure, fonts and layout are unchanged."}
-                </p>
+          <div className="mt-8 space-y-6">
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Review & edit before building · {result.slideCount} slides kept
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {result.note || "Nothing is written into your file until you build it."}
+                  </p>
+                </div>
+                <Button onClick={buildAndDownload} disabled={building} variant="secondary">
+                  {building ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileDown className="mr-2 h-4 w-4" />
+                  )}
+                  {building ? "Building…" : "Build & download .pptx"}
+                </Button>
               </div>
-              <Button onClick={download} variant="secondary">
-                <FileDown className="mr-2 h-4 w-4" /> Download .pptx
-              </Button>
+
+              {result.placeholders.length ? (
+                <div className="mt-6 space-y-4">
+                  {result.placeholders.map((p) => (
+                    <div key={p.id} className="rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-xs uppercase tracking-wide text-accent">
+                          Slide {p.slide} · {p.shape} · {p.kind}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDraft((d) => ({ ...d, [p.id]: p.text }))}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Reset
+                        </button>
+                      </div>
+                      <Textarea
+                        rows={p.kind === "title" ? 1 : 2}
+                        value={draft[p.id] ?? ""}
+                        onChange={(e) => setDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
-            {result.placeholders.length ? (
-              <ul className="mt-5 max-h-80 space-y-2 overflow-y-auto text-sm">
-                {result.placeholders.map((p) => (
-                  <li key={p.id} className="rounded-lg bg-secondary/50 px-3 py-2">
-                    <span className="text-xs uppercase tracking-wide text-accent">
-                      Slide {p.slide} · {p.shape}
-                    </span>
-                    <p className="text-foreground">{p.text}</p>
-                  </li>
-                ))}
-              </ul>
+
+            {result.media.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="text-base font-semibold text-foreground">Images & video</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Swap any picture, video or audio already in the template. Use the same file type so the
+                  slide stays intact. Nothing is added or removed.
+                </p>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  {result.media.map((m) => {
+                    const swap = swaps[m.id];
+                    const Icon = m.kind === "video" ? Film : m.kind === "audio" ? Music : ImageIcon;
+                    return (
+                      <div key={m.id} className="rounded-xl bg-secondary/40 p-3">
+                        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-accent">
+                          <Icon className="h-3.5 w-3.5" />
+                          {m.kind} · {m.slides.length ? `slide ${m.slides.join(", ")}` : "shared"} ·{" "}
+                          {kb(m.bytes)}
+                        </div>
+                        {swap?.preview || m.preview ? (
+                          <img
+                            src={swap?.preview ?? m.preview}
+                            alt={`Template asset ${m.name}`}
+                            loading="lazy"
+                            className="mt-3 h-32 w-full rounded-lg border border-border object-contain"
+                          />
+                        ) : null}
+                        <label
+                          htmlFor={`media-${m.id}`}
+                          className="mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary"
+                        >
+                          <UploadCloud className="h-4 w-4 text-primary" />
+                          {swap ? swap.name : `Replace ${m.name}`}
+                        </label>
+                        <input
+                          id={`media-${m.id}`}
+                          type="file"
+                          accept="image/*,video/*,audio/*"
+                          className="sr-only"
+                          onChange={(e) => pickMedia(m.id, e.target.files?.[0] ?? null)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             ) : null}
           </div>
         ) : null}

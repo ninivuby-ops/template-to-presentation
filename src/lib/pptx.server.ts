@@ -153,3 +153,110 @@ function setParagraphText(para: string, value: string) {
   if (endRpr) return para.replace(endRpr[0], run + endRpr[0]);
   return para.replace(/<\/a:p>$/, `${run}</a:p>`);
 }
+
+export type MediaItem = {
+  /** zip path, e.g. ppt/media/image2.png */
+  id: string;
+  name: string;
+  kind: "image" | "video" | "audio" | "other";
+  slides: number[];
+  bytes: number;
+  /** small previews only, as a data URL */
+  preview?: string | undefined;
+};
+
+const MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  emf: "image/emf",
+  wmf: "image/wmf",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+  avi: "video/x-msvideo",
+  wmv: "video/x-ms-wmv",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+};
+
+const kindOf = (ext: string): MediaItem["kind"] => {
+  const m = MIME[ext] ?? "";
+  if (m.startsWith("image/")) return "image";
+  if (m.startsWith("video/")) return "video";
+  if (m.startsWith("audio/")) return "audio";
+  return "other";
+};
+
+const toB64 = (bytes: Uint8Array) => {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk)
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(bin);
+};
+
+/** List every image/video/audio asset the slides reference. */
+export function extractMedia(bytes: Uint8Array): MediaItem[] {
+  const files = unzipSync(bytes);
+  const slides = slideEntries(files);
+  const usedBy = new Map<string, number[]>();
+
+  slides.forEach((name, si) => {
+    const relName = name.replace(/slides\/(slide\d+)\.xml$/, "slides/_rels/$1.xml.rels");
+    const rel = files[relName];
+    if (!rel) return;
+    const xml = strFromU8(rel);
+    for (const m of xml.matchAll(/Target="\.\.\/(media\/[^"]+)"/g)) {
+      const path = `ppt/${m[1]}`;
+      const list = usedBy.get(path) ?? [];
+      if (!list.includes(si + 1)) list.push(si + 1);
+      usedBy.set(path, list);
+    }
+  });
+
+  const out: MediaItem[] = [];
+  for (const path of Object.keys(files).filter((n) => n.startsWith("ppt/media/"))) {
+    const data = files[path]!;
+    const name = path.split("/").pop()!;
+    const ext = (name.split(".").pop() ?? "").toLowerCase();
+    const kind = kindOf(ext);
+    out.push({
+      id: path,
+      name,
+      kind,
+      slides: usedBy.get(path) ?? [],
+      bytes: data.length,
+      preview:
+        kind === "image" && data.length < 1_500_000 && MIME[ext]
+          ? `data:${MIME[ext]};base64,${toB64(data)}`
+          : undefined,
+    });
+  }
+  return out.sort((a, b) => (a.slides[0] ?? 99) - (b.slides[0] ?? 99));
+}
+
+/** Fill text and optionally swap media assets in place, keeping every zip path. */
+export function buildDeck(
+  bytes: Uint8Array,
+  values: Record<string, string>,
+  media: Record<string, Uint8Array> = {},
+) {
+  const { bytes: filledBytes, filled } = fillTemplate(bytes, values);
+  const mediaKeys = Object.keys(media);
+  if (!mediaKeys.length) return { bytes: filledBytes, filled, replacedMedia: 0 };
+
+  const files = unzipSync(filledBytes);
+  let replacedMedia = 0;
+  for (const key of mediaKeys) {
+    if (!files[key]) continue;
+    files[key] = new Uint8Array(media[key]!);
+    replacedMedia++;
+  }
+  return { bytes: new Uint8Array(zipSync(files, { level: 6 })), filled, replacedMedia };
+}
