@@ -258,31 +258,99 @@ function Index() {
         </form>
 
         {result ? (
-          <div className="mt-8 rounded-2xl border border-border bg-card p-6 shadow-panel">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  {result.filled} placeholders filled · {result.slideCount} slides kept
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {result.note || "Structure, fonts and layout are unchanged."}
-                </p>
+          <div className="mt-8 space-y-6">
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Review & edit before building · {result.slideCount} slides kept
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {result.note || "Nothing is written into your file until you build it."}
+                  </p>
+                </div>
+                <Button onClick={buildAndDownload} disabled={building} variant="secondary">
+                  {building ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileDown className="mr-2 h-4 w-4" />
+                  )}
+                  {building ? "Building…" : "Build & download .pptx"}
+                </Button>
               </div>
-              <Button onClick={download} variant="secondary">
-                <FileDown className="mr-2 h-4 w-4" /> Download .pptx
-              </Button>
+
+              {result.placeholders.length ? (
+                <div className="mt-6 space-y-4">
+                  {result.placeholders.map((p) => (
+                    <div key={p.id} className="rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-xs uppercase tracking-wide text-accent">
+                          Slide {p.slide} · {p.shape} · {p.kind}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDraft((d) => ({ ...d, [p.id]: p.text }))}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Reset
+                        </button>
+                      </div>
+                      <Textarea
+                        rows={p.kind === "title" ? 1 : 2}
+                        value={draft[p.id] ?? ""}
+                        onChange={(e) => setDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
-            {result.placeholders.length ? (
-              <ul className="mt-5 max-h-80 space-y-2 overflow-y-auto text-sm">
-                {result.placeholders.map((p) => (
-                  <li key={p.id} className="rounded-lg bg-secondary/50 px-3 py-2">
-                    <span className="text-xs uppercase tracking-wide text-accent">
-                      Slide {p.slide} · {p.shape}
-                    </span>
-                    <p className="text-foreground">{p.text}</p>
-                  </li>
-                ))}
-              </ul>
+
+            {result.media.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="text-base font-semibold text-foreground">Images & video</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Swap any picture, video or audio already in the template. Use the same file type so the
+                  slide stays intact. Nothing is added or removed.
+                </p>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  {result.media.map((m) => {
+                    const swap = swaps[m.id];
+                    const Icon = m.kind === "video" ? Film : m.kind === "audio" ? Music : ImageIcon;
+                    return (
+                      <div key={m.id} className="rounded-xl bg-secondary/40 p-3">
+                        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-accent">
+                          <Icon className="h-3.5 w-3.5" />
+                          {m.kind} · {m.slides.length ? `slide ${m.slides.join(", ")}` : "shared"} ·{" "}
+                          {kb(m.bytes)}
+                        </div>
+                        {swap?.preview || m.preview ? (
+                          <img
+                            src={swap?.preview ?? m.preview}
+                            alt={`Template asset ${m.name}`}
+                            loading="lazy"
+                            className="mt-3 h-32 w-full rounded-lg border border-border object-contain"
+                          />
+                        ) : null}
+                        <label
+                          htmlFor={`media-${m.id}`}
+                          className="mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary"
+                        >
+                          <UploadCloud className="h-4 w-4 text-primary" />
+                          {swap ? swap.name : `Replace ${m.name}`}
+                        </label>
+                        <input
+                          id={`media-${m.id}`}
+                          type="file"
+                          accept="image/*,video/*,audio/*"
+                          className="sr-only"
+                          onChange={(e) => pickMedia(m.id, e.target.files?.[0] ?? null)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             ) : null}
           </div>
         ) : null}
