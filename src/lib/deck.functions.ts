@@ -6,7 +6,7 @@ const Input = z.object({
   fileName: z.string().default("template.pptx"),
   topic: z.string().min(3).max(300),
   audience: z.string().max(200).optional().default(""),
-  details: z.string().max(4000).optional().default(""),
+  details: z.string().max(40000).optional().default(""),
 });
 
 const b64ToBytes = (b64: string) => {
