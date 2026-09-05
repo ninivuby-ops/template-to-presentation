@@ -37,6 +37,8 @@ export const Route = createFileRoute("/")({
 type Result = Awaited<ReturnType<typeof generateDeck>>;
 type MediaSwap = { name: string; fileBase64: string; preview?: string };
 
+const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
+
 const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const rules = [
@@ -73,6 +75,10 @@ function Index() {
     e.preventDefault();
     if (!file) {
       toast.error("Please choose a .pptx template first.");
+      return;
+    }
+    if (wordCount(details) > 40000) {
+      toast.error("Please keep the facts and notes under 40,000 words.");
       return;
     }
     if (topic.trim().length < 3) {
@@ -244,13 +250,13 @@ function Index() {
             <Textarea
               id="det"
               value={details}
-              onChange={(e) => setDetails(e.target.value.slice(0, 40000))}
+              onChange={(e) => setDetails(e.target.value)}
               rows={7}
               placeholder="Paste any real figures, names or context you want included."
               className="mt-2"
             />
             <p className="mt-1 text-right text-xs text-muted-foreground">
-              {details.length.toLocaleString()} / 40,000 characters
+              {wordCount(details).toLocaleString()} / 40,000 words
             </p>
           </div>
 
