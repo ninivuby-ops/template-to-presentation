@@ -165,7 +165,16 @@ function Index() {
     r.readAsDataURL(f);
   };
 
-  const doBuild = async (payload: Parameters<typeof build>[0]["data"]) => {
+  type BuildPayload = {
+    fileBase64: string;
+    items: { id: string; text: string }[];
+    media: { id: string; fileBase64: string }[];
+    tables: { id: string; rows: string[][] }[];
+    charts: Charts;
+    diagrams: { id: string; nodes: string[] }[];
+  };
+
+  const doBuild = async (payload: BuildPayload) => {
     if (!file) return;
     setBuilding(true);
     try {
