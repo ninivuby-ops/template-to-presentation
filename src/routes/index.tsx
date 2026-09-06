@@ -421,7 +421,227 @@ function Index() {
                 </div>
               </div>
             ) : null}
+
+            {tables.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <TableIcon className="h-4 w-4 text-primary" /> Tables
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Same rows and columns as your template — only the wording changes.
+                </p>
+                <div className="mt-5 space-y-6">
+                  {tables.map((t, ti) => (
+                    <div key={t.id} className="overflow-x-auto rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-accent">
+                        Slide {t.slide}
+                      </div>
+                      <table className="w-full border-separate border-spacing-1">
+                        <tbody>
+                          {t.rows.map((row, ri) => (
+                            <tr key={ri}>
+                              {row.map((cell, ci) => (
+                                <td key={ci}>
+                                  <Input
+                                    value={cell}
+                                    aria-label={`Row ${ri + 1} column ${ci + 1}`}
+                                    onChange={(e) =>
+                                      setTables((prev) =>
+                                        prev.map((tt, i) =>
+                                          i !== ti
+                                            ? tt
+                                            : {
+                                                ...tt,
+                                                rows: tt.rows.map((rr, j) =>
+                                                  j !== ri
+                                                    ? rr
+                                                    : rr.map((cc, k) => (k === ci ? e.target.value : cc)),
+                                                ),
+                                              },
+                                        ),
+                                      )
+                                    }
+                                    className="h-9 min-w-36 text-sm"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {charts.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <BarChart3 className="h-4 w-4 text-primary" /> Charts
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Labels and numbers go straight into the chart already on the slide — its type, colours
+                  and size stay as designed.
+                </p>
+                <div className="mt-5 space-y-6">
+                  {charts.map((c, ci) => (
+                    <div key={c.id} className="rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-accent">
+                        {c.slide ? `Slide ${c.slide}` : "Chart"} · {c.kind}
+                      </div>
+                      <Input
+                        value={c.title}
+                        aria-label="Chart title"
+                        placeholder="Chart title"
+                        onChange={(e) =>
+                          setCharts((prev) =>
+                            prev.map((cc, i) => (i === ci ? { ...cc, title: e.target.value } : cc)),
+                          )
+                        }
+                        className="mb-3 h-9 text-sm"
+                      />
+                      <div className="overflow-x-auto">
+                        <table className="border-separate border-spacing-1 text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left text-xs font-normal text-muted-foreground">
+                                Series
+                              </th>
+                              {c.categories.map((cat, k) => (
+                                <th key={k}>
+                                  <Input
+                                    value={cat}
+                                    aria-label={`Category ${k + 1}`}
+                                    onChange={(e) =>
+                                      setCharts((prev) =>
+                                        prev.map((cc, i) =>
+                                          i !== ci
+                                            ? cc
+                                            : {
+                                                ...cc,
+                                                categories: cc.categories.map((x, j) =>
+                                                  j === k ? e.target.value : x,
+                                                ),
+                                              },
+                                        ),
+                                      )
+                                    }
+                                    className="h-9 min-w-28 text-sm"
+                                  />
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.series.map((s, si) => (
+                              <tr key={si}>
+                                <td>
+                                  <Input
+                                    value={s.name}
+                                    aria-label={`Series ${si + 1} name`}
+                                    onChange={(e) =>
+                                      setCharts((prev) =>
+                                        prev.map((cc, i) =>
+                                          i !== ci
+                                            ? cc
+                                            : {
+                                                ...cc,
+                                                series: cc.series.map((ss, j) =>
+                                                  j === si ? { ...ss, name: e.target.value } : ss,
+                                                ),
+                                              },
+                                        ),
+                                      )
+                                    }
+                                    className="h-9 min-w-28 text-sm"
+                                  />
+                                </td>
+                                {s.values.map((v, vi) => (
+                                  <td key={vi}>
+                                    <Input
+                                      type="number"
+                                      value={String(v)}
+                                      aria-label={`Series ${si + 1} value ${vi + 1}`}
+                                      onChange={(e) =>
+                                        setCharts((prev) =>
+                                          prev.map((cc, i) =>
+                                            i !== ci
+                                              ? cc
+                                              : {
+                                                  ...cc,
+                                                  series: cc.series.map((ss, j) =>
+                                                    j !== si
+                                                      ? ss
+                                                      : {
+                                                          ...ss,
+                                                          values: ss.values.map((x, k) =>
+                                                            k === vi ? Number(e.target.value) || 0 : x,
+                                                          ),
+                                                        },
+                                                  ),
+                                                },
+                                          ),
+                                        )
+                                      }
+                                      className="h-9 w-28 text-sm"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {diagrams.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Workflow className="h-4 w-4 text-primary" /> Diagrams
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Each shape in your existing diagram keeps its place; only the label changes.
+                </p>
+                <div className="mt-5 space-y-5">
+                  {diagrams.map((d, di) => (
+                    <div key={d.id} className="rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-accent">
+                        {d.slide ? `Slide ${d.slide}` : "Diagram"} · {d.nodes.length} shapes
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {d.nodes.map((n, ni) => (
+                          <Input
+                            key={ni}
+                            value={n}
+                            aria-label={`Diagram label ${ni + 1}`}
+                            onChange={(e) =>
+                              setDiagrams((prev) =>
+                                prev.map((dd, i) =>
+                                  i !== di
+                                    ? dd
+                                    : {
+                                        ...dd,
+                                        nodes: dd.nodes.map((x, j) => (j === ni ? e.target.value : x)),
+                                      },
+                                ),
+                              )
+                            }
+                            className="h-9 text-sm"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
+
         ) : null}
       </section>
 
