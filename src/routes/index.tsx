@@ -7,7 +7,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { UploadCloud, FileDown, Loader2, ShieldCheck, Image as ImageIcon, Film, Music, RotateCcw } from "lucide-react";
+import {
+  UploadCloud,
+  FileDown,
+  Loader2,
+  ShieldCheck,
+  Image as ImageIcon,
+  Film,
+  Music,
+  RotateCcw,
+  Table as TableIcon,
+  BarChart3,
+  Workflow,
+  Sparkles,
+} from "lucide-react";
 import { generateDeck, buildDeckFile } from "@/lib/deck.functions";
 import hero from "@/assets/hero.jpg";
 import architecture from "@/assets/architecture.jpg";
@@ -35,6 +48,9 @@ export const Route = createFileRoute("/")({
 });
 
 type Result = Awaited<ReturnType<typeof generateDeck>>;
+type Tables = Result["tables"];
+type Charts = Result["charts"];
+type Diagrams = Result["diagrams"];
 type MediaSwap = { name: string; fileBase64: string; preview?: string | undefined };
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
@@ -62,6 +78,9 @@ function Index() {
   const [swaps, setSwaps] = useState<Record<string, MediaSwap>>({});
   const [building, setBuilding] = useState(false);
   const [baseFile, setBaseFile] = useState("");
+  const [tables, setTables] = useState<Tables>([]);
+  const [charts, setCharts] = useState<Charts>([]);
+  const [diagrams, setDiagrams] = useState<Diagrams>([]);
 
   const readBase64 = (f: File) =>
     new Promise<string>((resolve, reject) => {
@@ -71,7 +90,7 @@ function Index() {
       r.readAsDataURL(f);
     });
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent, oneClick = false) => {
     e.preventDefault();
     if (!file) {
       toast.error("Please choose a .pptx template first.");
@@ -95,11 +114,28 @@ function Index() {
       setResult(res);
       setBaseFile(fileBase64);
       setDraft(Object.fromEntries(res.placeholders.map((p) => [p.id, p.text])));
+      setTables(res.tables);
+      setCharts(res.charts);
+      setDiagrams(res.diagrams);
       setSwaps({});
+      if (oneClick) {
+        await doBuild({
+          fileBase64,
+          items: res.placeholders.map((p) => ({ id: p.id, text: p.text })),
+          media: [],
+          tables: res.tables.map((t) => ({ id: t.id, rows: t.rows })),
+          charts: res.charts.map((c) => ({
+            id: c.id,
+            title: c.title,
+            categories: c.categories,
+            series: c.series,
+          })),
+          diagrams: res.diagrams.map((d) => ({ id: d.id, nodes: d.nodes })),
+        });
+        return;
+      }
       toast.success(
-        res.placeholders.length
-          ? `Drafted ${res.placeholders.length} placeholders — edit them below, then build the deck.`
-          : "Finished.",
+        `Drafted ${res.placeholders.length} text blocks, ${res.tables.length} tables, ${res.charts.length} charts and ${res.diagrams.length} diagrams — edit below, then build.`,
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
@@ -129,17 +165,11 @@ function Index() {
     r.readAsDataURL(f);
   };
 
-  const buildAndDownload = async () => {
-    if (!result || !file || !baseFile) return;
+  const doBuild = async (payload: Parameters<typeof build>[0]["data"]) => {
+    if (!file) return;
     setBuilding(true);
     try {
-      const out = await build({
-        data: {
-          fileBase64: baseFile,
-          items: Object.entries(draft).map(([id, text]) => ({ id, text })),
-          media: Object.entries(swaps).map(([id, m]) => ({ id, fileBase64: m.fileBase64 })),
-        },
-      });
+      const out = await build({ data: payload });
       const bin = atob(out.fileBase64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -154,7 +184,7 @@ function Index() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success(
-        `Built with ${out.filled} placeholders filled` +
+        `Deck ready — ${out.filled} text blocks, ${out.filledComplex} table/chart/diagram edits` +
           (out.replacedMedia ? ` and ${out.replacedMedia} media files replaced.` : "."),
       );
     } catch (err) {
@@ -163,6 +193,21 @@ function Index() {
       setBuilding(false);
     }
   };
+
+  const buildAndDownload = () =>
+    doBuild({
+      fileBase64: baseFile,
+      items: Object.entries(draft).map(([id, text]) => ({ id, text })),
+      media: Object.entries(swaps).map(([id, m]) => ({ id, fileBase64: m.fileBase64 })),
+      tables: tables.map((t) => ({ id: t.id, rows: t.rows })),
+      charts: charts.map((c) => ({
+        id: c.id,
+        title: c.title,
+        categories: c.categories,
+        series: c.series,
+      })),
+      diagrams: diagrams.map((d) => ({ id: d.id, nodes: d.nodes })),
+    });
 
   return (
     <main className="min-h-screen bg-background">
