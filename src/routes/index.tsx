@@ -170,7 +170,7 @@ function Index() {
     items: { id: string; text: string }[];
     media: { id: string; fileBase64: string }[];
     tables: { id: string; rows: string[][] }[];
-    charts: Charts;
+    charts: { id: string; title: string; categories: string[]; series: { name: string; values: number[] }[] }[];
     diagrams: { id: string; nodes: string[] }[];
   };
 
