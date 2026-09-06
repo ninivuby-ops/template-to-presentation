@@ -260,3 +260,301 @@ export function buildDeck(
   }
   return { bytes: new Uint8Array(zipSync(files, { level: 6 })), filled, replacedMedia };
 }
+
+/* ---------------------------------------------------------------------------
+ * Complex slide objects: tables, charts and SmartArt diagrams.
+ * All of these already exist in the template — we only rewrite their text and
+ * cached numbers, never their styling, size, position or structure.
+ * ------------------------------------------------------------------------ */
+
+export type TableStruct = {
+  id: string;
+  slide: number;
+  rows: string[][];
+};
+
+export type ChartStruct = {
+  id: string;
+  slide: number;
+  kind: string;
+  title: string;
+  categories: string[];
+  series: { name: string; values: number[] }[];
+};
+
+export type DiagramStruct = {
+  id: string;
+  slide: number;
+  nodes: string[];
+};
+
+const cellText = (tc: string) =>
+  matchBlocks(tc, "a:p").map((p) => paraText(p.text)).join(" ").trim();
+
+/** Read every table on every slide. */
+export function extractTables(files: Record<string, Uint8Array>): TableStruct[] {
+  const out: TableStruct[] = [];
+  slideEntries(files).forEach((name, si) => {
+    const xml = strFromU8(files[name]!);
+    matchBlocks(xml, "a:tbl").forEach((tbl, ti) => {
+      const rows = matchBlocks(tbl.text, "a:tr").map((tr) =>
+        matchBlocks(tr.text, "a:tc").map((tc) => cellText(tc.text)),
+      );
+      if (rows.length) out.push({ id: `tbl_s${si + 1}_${ti}`, slide: si + 1, rows });
+    });
+  });
+  return out;
+}
+
+function chartTargets(files: Record<string, Uint8Array>) {
+  const map = new Map<string, number>();
+  slideEntries(files).forEach((name, si) => {
+    const rel = files[name.replace(/slides\/(slide\d+)\.xml$/, "slides/_rels/$1.xml.rels")];
+    if (!rel) return;
+    const xml = strFromU8(rel);
+    for (const m of xml.matchAll(/Target="[^"]*?(charts\/chart\d+\.xml)"/g)) {
+      map.set(`ppt/${m[1]}`, si + 1);
+    }
+    // charts are often reached through a graphicFrame -> chart part directly
+    for (const m of xml.matchAll(/Target="[^"]*?(drawings\/[^"]+\.xml)"/g)) void m;
+  });
+  return map;
+}
+
+const firstVal = (block: string) => xmlUnescape(block.match(/<c:v>([\s\S]*?)<\/c:v>/)?.[1] ?? "").trim();
+const allVals = (block: string) =>
+  Array.from(block.matchAll(/<c:v>([\s\S]*?)<\/c:v>/g)).map((m) => xmlUnescape(m[1]!).trim());
+
+/** Read every chart's cached title, categories and series values. */
+export function extractCharts(files: Record<string, Uint8Array>): ChartStruct[] {
+  const slideOf = chartTargets(files);
+  const out: ChartStruct[] = [];
+  for (const path of Object.keys(files).filter((n) => /^ppt\/charts\/chart\d+\.xml$/.test(n))) {
+    const xml = strFromU8(files[path]!);
+    const kind = xml.match(/<c:(\w+Chart)[ >]/)?.[1]?.replace(/Chart$/, "") ?? "chart";
+    const titleBlock = matchBlocks(xml, "c:title")[0]?.text ?? "";
+    const title = xmlUnescape(
+      Array.from(titleBlock.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)).map((m) => m[1]).join(""),
+    ).trim();
+
+    const sers = matchBlocks(xml, "c:ser");
+    let categories: string[] = [];
+    const series = sers.map((s) => {
+      const tx = matchBlocks(s.text, "c:tx")[0]?.text ?? "";
+      const cat = matchBlocks(s.text, "c:cat")[0]?.text ?? "";
+      const val = matchBlocks(s.text, "c:val")[0]?.text ?? "";
+      if (!categories.length) categories = allVals(cat);
+      return {
+        name: firstVal(tx),
+        values: allVals(val).map((v) => Number(v) || 0),
+      };
+    });
+    out.push({ id: path, slide: slideOf.get(path) ?? 0, kind, title, categories, series });
+  }
+  return out.sort((a, b) => a.slide - b.slide);
+}
+
+/** Read SmartArt / diagram node labels. */
+export function extractDiagrams(files: Record<string, Uint8Array>): DiagramStruct[] {
+  const slideOf = new Map<string, number>();
+  slideEntries(files).forEach((name, si) => {
+    const rel = files[name.replace(/slides\/(slide\d+)\.xml$/, "slides/_rels/$1.xml.rels")];
+    if (!rel) return;
+    for (const m of strFromU8(rel).matchAll(/Target="[^"]*?(diagrams\/data\d+\.xml)"/g)) {
+      slideOf.set(`ppt/${m[1]}`, si + 1);
+    }
+  });
+
+  const out: DiagramStruct[] = [];
+  for (const path of Object.keys(files).filter((n) => /^ppt\/diagrams\/data\d+\.xml$/.test(n))) {
+    const xml = strFromU8(files[path]!);
+    const nodes = matchBlocks(xml, "a:p")
+      .map((p) => paraText(p.text))
+      .filter((t) => t.length > 0 || true);
+    out.push({ id: path, slide: slideOf.get(path) ?? 0, nodes });
+  }
+  return out.sort((a, b) => a.slide - b.slide);
+}
+
+/** Write table cell text back, keeping every cell's own formatting. */
+function fillTables(files: Record<string, Uint8Array>, tables: Record<string, string[][]>) {
+  let filled = 0;
+  slideEntries(files).forEach((name, si) => {
+    let xml = strFromU8(files[name]!);
+    let changed = false;
+    const tbls = matchBlocks(xml, "a:tbl");
+    for (let ti = tbls.length - 1; ti >= 0; ti--) {
+      const wanted = tables[`tbl_s${si + 1}_${ti}`];
+      if (!wanted) continue;
+      const tbl = tbls[ti]!;
+      let tblXml = tbl.text;
+      const trs = matchBlocks(tblXml, "a:tr");
+      for (let ri = trs.length - 1; ri >= 0; ri--) {
+        const row = wanted[ri];
+        if (!row) continue;
+        let trXml = trs[ri]!.text;
+        const tcs = matchBlocks(trXml, "a:tc");
+        for (let ci = tcs.length - 1; ci >= 0; ci--) {
+          const value = row[ci];
+          if (value === undefined) continue;
+          let tcXml = tcs[ci]!.text;
+          const paras = matchBlocks(tcXml, "a:p");
+          if (!paras.length) continue;
+          // collapse to the first paragraph so a cell never grows extra lines
+          for (let pi = paras.length - 1; pi >= 1; pi--) {
+            tcXml = tcXml.slice(0, paras[pi]!.start) + tcXml.slice(paras[pi]!.end);
+          }
+          const first = matchBlocks(tcXml, "a:p")[0]!;
+          const replaced = setParagraphText(first.text, value);
+          tcXml = tcXml.slice(0, first.start) + replaced + tcXml.slice(first.end);
+          trXml = trXml.slice(0, tcs[ci]!.start) + tcXml + trXml.slice(tcs[ci]!.end);
+          filled++;
+        }
+        tblXml = tblXml.slice(0, trs[ri]!.start) + trXml + tblXml.slice(trs[ri]!.end);
+      }
+      xml = xml.slice(0, tbl.start) + tblXml + xml.slice(tbl.end);
+      changed = true;
+    }
+    if (changed) files[name] = strToU8(xml);
+  });
+  return filled;
+}
+
+function replaceVals(block: string, values: string[]) {
+  let i = 0;
+  return block.replace(/<c:v>[\s\S]*?<\/c:v>/g, (m) => {
+    const next = values[i++];
+    return next === undefined ? m : `<c:v>${xmlEscape(next)}</c:v>`;
+  });
+}
+
+/** Write chart titles, categories and cached values back into the chart part. */
+function fillCharts(
+  files: Record<string, Uint8Array>,
+  charts: Record<string, { title?: string; categories?: string[]; series?: { name?: string; values?: number[] }[] }>,
+) {
+  let filled = 0;
+  for (const [path, spec] of Object.entries(charts)) {
+    const raw = files[path];
+    if (!raw) continue;
+    let xml = strFromU8(raw);
+
+    if (spec.title) {
+      const t = matchBlocks(xml, "c:title")[0];
+      if (t) {
+        let done = false;
+        const newTitle = t.text.replace(/<a:t>[\s\S]*?<\/a:t>/, () => {
+          done = true;
+          return `<a:t>${xmlEscape(spec.title!)}</a:t>`;
+        });
+        if (done) {
+          xml = xml.slice(0, t.start) + newTitle + xml.slice(t.end);
+          filled++;
+        }
+      }
+    }
+
+    const sers = matchBlocks(xml, "c:ser");
+    for (let i = sers.length - 1; i >= 0; i--) {
+      const s = sers[i]!;
+      const spec_i = spec.series?.[i];
+      let sXml = s.text;
+
+      if (spec.categories?.length) {
+        const cat = matchBlocks(sXml, "c:cat")[0];
+        if (cat) {
+          sXml =
+            sXml.slice(0, cat.start) + replaceVals(cat.text, spec.categories) + sXml.slice(cat.end);
+          filled++;
+        }
+      }
+      if (spec_i?.values?.length) {
+        const val = matchBlocks(sXml, "c:val")[0];
+        if (val) {
+          sXml =
+            sXml.slice(0, val.start) +
+            replaceVals(val.text, spec_i.values.map((v) => String(v))) +
+            sXml.slice(val.end);
+          filled++;
+        }
+      }
+      if (spec_i?.name) {
+        const tx = matchBlocks(sXml, "c:tx")[0];
+        if (tx) {
+          sXml = sXml.slice(0, tx.start) + replaceVals(tx.text, [spec_i.name]) + sXml.slice(tx.end);
+          filled++;
+        }
+      }
+      xml = xml.slice(0, s.start) + sXml + xml.slice(s.end);
+    }
+    files[path] = strToU8(xml);
+  }
+  return filled;
+}
+
+/** Write SmartArt node labels back, by position. */
+function fillDiagrams(files: Record<string, Uint8Array>, diagrams: Record<string, string[]>) {
+  let filled = 0;
+  for (const [path, nodes] of Object.entries(diagrams)) {
+    const raw = files[path];
+    if (!raw) continue;
+    let xml = strFromU8(raw);
+    const paras = matchBlocks(xml, "a:p");
+    for (let i = paras.length - 1; i >= 0; i--) {
+      const value = nodes[i];
+      if (value === undefined) continue;
+      const replaced = setParagraphText(paras[i]!.text, value);
+      if (replaced === paras[i]!.text) continue;
+      xml = xml.slice(0, paras[i]!.start) + replaced + xml.slice(paras[i]!.end);
+      filled++;
+    }
+    files[path] = strToU8(xml);
+  }
+  return filled;
+}
+
+/** Everything the AI can fill in one pass, read straight out of the template. */
+export function extractStructures(bytes: Uint8Array) {
+  const files = unzipSync(bytes);
+  return {
+    tables: extractTables(files),
+    charts: extractCharts(files),
+    diagrams: extractDiagrams(files),
+  };
+}
+
+export type ComplexEdits = {
+  tables?: Record<string, string[][]>;
+  charts?: Record<string, { title?: string; categories?: string[]; series?: { name?: string; values?: number[] }[] }>;
+  diagrams?: Record<string, string[]>;
+};
+
+/** Text + media + tables/charts/diagrams, all written into the same file. */
+export function buildDeckFull(
+  bytes: Uint8Array,
+  values: Record<string, string>,
+  media: Record<string, Uint8Array> = {},
+  complex: ComplexEdits = {},
+) {
+  const { bytes: filledBytes, filled } = fillTemplate(bytes, values);
+  const files = unzipSync(filledBytes);
+
+  let replacedMedia = 0;
+  for (const key of Object.keys(media)) {
+    if (!files[key]) continue;
+    files[key] = new Uint8Array(media[key]!);
+    replacedMedia++;
+  }
+
+  const filledComplex =
+    fillTables(files, complex.tables ?? {}) +
+    fillCharts(files, complex.charts ?? {}) +
+    fillDiagrams(files, complex.diagrams ?? {});
+
+  return {
+    bytes: new Uint8Array(zipSync(files, { level: 6 })),
+    filled,
+    replacedMedia,
+    filledComplex,
+  };
+}

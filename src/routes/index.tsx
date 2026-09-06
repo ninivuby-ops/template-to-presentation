@@ -7,7 +7,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { UploadCloud, FileDown, Loader2, ShieldCheck, Image as ImageIcon, Film, Music, RotateCcw } from "lucide-react";
+import {
+  UploadCloud,
+  FileDown,
+  Loader2,
+  ShieldCheck,
+  Image as ImageIcon,
+  Film,
+  Music,
+  RotateCcw,
+  Table as TableIcon,
+  BarChart3,
+  Workflow,
+  Sparkles,
+} from "lucide-react";
 import { generateDeck, buildDeckFile } from "@/lib/deck.functions";
 import hero from "@/assets/hero.jpg";
 import architecture from "@/assets/architecture.jpg";
@@ -35,6 +48,9 @@ export const Route = createFileRoute("/")({
 });
 
 type Result = Awaited<ReturnType<typeof generateDeck>>;
+type Tables = Result["tables"];
+type Charts = Result["charts"];
+type Diagrams = Result["diagrams"];
 type MediaSwap = { name: string; fileBase64: string; preview?: string | undefined };
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
@@ -62,6 +78,9 @@ function Index() {
   const [swaps, setSwaps] = useState<Record<string, MediaSwap>>({});
   const [building, setBuilding] = useState(false);
   const [baseFile, setBaseFile] = useState("");
+  const [tables, setTables] = useState<Tables>([]);
+  const [charts, setCharts] = useState<Charts>([]);
+  const [diagrams, setDiagrams] = useState<Diagrams>([]);
 
   const readBase64 = (f: File) =>
     new Promise<string>((resolve, reject) => {
@@ -71,7 +90,7 @@ function Index() {
       r.readAsDataURL(f);
     });
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent, oneClick = false) => {
     e.preventDefault();
     if (!file) {
       toast.error("Please choose a .pptx template first.");
@@ -95,11 +114,28 @@ function Index() {
       setResult(res);
       setBaseFile(fileBase64);
       setDraft(Object.fromEntries(res.placeholders.map((p) => [p.id, p.text])));
+      setTables(res.tables);
+      setCharts(res.charts);
+      setDiagrams(res.diagrams);
       setSwaps({});
+      if (oneClick) {
+        await doBuild({
+          fileBase64,
+          items: res.placeholders.map((p) => ({ id: p.id, text: p.text })),
+          media: [],
+          tables: res.tables.map((t) => ({ id: t.id, rows: t.rows })),
+          charts: res.charts.map((c) => ({
+            id: c.id,
+            title: c.title,
+            categories: c.categories,
+            series: c.series,
+          })),
+          diagrams: res.diagrams.map((d) => ({ id: d.id, nodes: d.nodes })),
+        });
+        return;
+      }
       toast.success(
-        res.placeholders.length
-          ? `Drafted ${res.placeholders.length} placeholders — edit them below, then build the deck.`
-          : "Finished.",
+        `Drafted ${res.placeholders.length} text blocks, ${res.tables.length} tables, ${res.charts.length} charts and ${res.diagrams.length} diagrams — edit below, then build.`,
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
@@ -129,17 +165,20 @@ function Index() {
     r.readAsDataURL(f);
   };
 
-  const buildAndDownload = async () => {
-    if (!result || !file || !baseFile) return;
+  type BuildPayload = {
+    fileBase64: string;
+    items: { id: string; text: string }[];
+    media: { id: string; fileBase64: string }[];
+    tables: { id: string; rows: string[][] }[];
+    charts: { id: string; title: string; categories: string[]; series: { name: string; values: number[] }[] }[];
+    diagrams: { id: string; nodes: string[] }[];
+  };
+
+  const doBuild = async (payload: BuildPayload) => {
+    if (!file) return;
     setBuilding(true);
     try {
-      const out = await build({
-        data: {
-          fileBase64: baseFile,
-          items: Object.entries(draft).map(([id, text]) => ({ id, text })),
-          media: Object.entries(swaps).map(([id, m]) => ({ id, fileBase64: m.fileBase64 })),
-        },
-      });
+      const out = await build({ data: payload });
       const bin = atob(out.fileBase64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -154,7 +193,7 @@ function Index() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success(
-        `Built with ${out.filled} placeholders filled` +
+        `Deck ready — ${out.filled} text blocks, ${out.filledComplex} table/chart/diagram edits` +
           (out.replacedMedia ? ` and ${out.replacedMedia} media files replaced.` : "."),
       );
     } catch (err) {
@@ -163,6 +202,21 @@ function Index() {
       setBuilding(false);
     }
   };
+
+  const buildAndDownload = () =>
+    doBuild({
+      fileBase64: baseFile,
+      items: Object.entries(draft).map(([id, text]) => ({ id, text })),
+      media: Object.entries(swaps).map(([id, m]) => ({ id, fileBase64: m.fileBase64 })),
+      tables: tables.map((t) => ({ id: t.id, rows: t.rows })),
+      charts: charts.map((c) => ({
+        id: c.id,
+        title: c.title,
+        categories: c.categories,
+        series: c.series,
+      })),
+      diagrams: diagrams.map((d) => ({ id: d.id, nodes: d.nodes })),
+    });
 
   return (
     <main className="min-h-screen bg-background">
@@ -260,11 +314,25 @@ function Index() {
             </p>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button
+              type="button"
+              disabled={busy || building}
+              size="lg"
+              onClick={(e) => onSubmit(e, true)}
+            >
+              {busy || building ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {busy ? "Writing your deck…" : building ? "Building…" : "Generate & download deck"}
+            </Button>
+            <Button type="submit" disabled={busy || building} size="lg" variant="secondary">
+              Generate, then let me edit
+            </Button>
+          </div>
 
-          <Button type="submit" disabled={busy} className="w-full" size="lg">
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {busy ? "Writing your deck…" : "Generate populated deck"}
-          </Button>
         </form>
 
         {result ? (
@@ -362,7 +430,227 @@ function Index() {
                 </div>
               </div>
             ) : null}
+
+            {tables.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <TableIcon className="h-4 w-4 text-primary" /> Tables
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Same rows and columns as your template — only the wording changes.
+                </p>
+                <div className="mt-5 space-y-6">
+                  {tables.map((t, ti) => (
+                    <div key={t.id} className="overflow-x-auto rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-accent">
+                        Slide {t.slide}
+                      </div>
+                      <table className="w-full border-separate border-spacing-1">
+                        <tbody>
+                          {t.rows.map((row, ri) => (
+                            <tr key={ri}>
+                              {row.map((cell, ci) => (
+                                <td key={ci}>
+                                  <Input
+                                    value={cell}
+                                    aria-label={`Row ${ri + 1} column ${ci + 1}`}
+                                    onChange={(e) =>
+                                      setTables((prev) =>
+                                        prev.map((tt, i) =>
+                                          i !== ti
+                                            ? tt
+                                            : {
+                                                ...tt,
+                                                rows: tt.rows.map((rr, j) =>
+                                                  j !== ri
+                                                    ? rr
+                                                    : rr.map((cc, k) => (k === ci ? e.target.value : cc)),
+                                                ),
+                                              },
+                                        ),
+                                      )
+                                    }
+                                    className="h-9 min-w-36 text-sm"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {charts.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <BarChart3 className="h-4 w-4 text-primary" /> Charts
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Labels and numbers go straight into the chart already on the slide — its type, colours
+                  and size stay as designed.
+                </p>
+                <div className="mt-5 space-y-6">
+                  {charts.map((c, ci) => (
+                    <div key={c.id} className="rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-accent">
+                        {c.slide ? `Slide ${c.slide}` : "Chart"} · {c.kind}
+                      </div>
+                      <Input
+                        value={c.title}
+                        aria-label="Chart title"
+                        placeholder="Chart title"
+                        onChange={(e) =>
+                          setCharts((prev) =>
+                            prev.map((cc, i) => (i === ci ? { ...cc, title: e.target.value } : cc)),
+                          )
+                        }
+                        className="mb-3 h-9 text-sm"
+                      />
+                      <div className="overflow-x-auto">
+                        <table className="border-separate border-spacing-1 text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left text-xs font-normal text-muted-foreground">
+                                Series
+                              </th>
+                              {c.categories.map((cat, k) => (
+                                <th key={k}>
+                                  <Input
+                                    value={cat}
+                                    aria-label={`Category ${k + 1}`}
+                                    onChange={(e) =>
+                                      setCharts((prev) =>
+                                        prev.map((cc, i) =>
+                                          i !== ci
+                                            ? cc
+                                            : {
+                                                ...cc,
+                                                categories: cc.categories.map((x, j) =>
+                                                  j === k ? e.target.value : x,
+                                                ),
+                                              },
+                                        ),
+                                      )
+                                    }
+                                    className="h-9 min-w-28 text-sm"
+                                  />
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.series.map((s, si) => (
+                              <tr key={si}>
+                                <td>
+                                  <Input
+                                    value={s.name}
+                                    aria-label={`Series ${si + 1} name`}
+                                    onChange={(e) =>
+                                      setCharts((prev) =>
+                                        prev.map((cc, i) =>
+                                          i !== ci
+                                            ? cc
+                                            : {
+                                                ...cc,
+                                                series: cc.series.map((ss, j) =>
+                                                  j === si ? { ...ss, name: e.target.value } : ss,
+                                                ),
+                                              },
+                                        ),
+                                      )
+                                    }
+                                    className="h-9 min-w-28 text-sm"
+                                  />
+                                </td>
+                                {s.values.map((v, vi) => (
+                                  <td key={vi}>
+                                    <Input
+                                      type="number"
+                                      value={String(v)}
+                                      aria-label={`Series ${si + 1} value ${vi + 1}`}
+                                      onChange={(e) =>
+                                        setCharts((prev) =>
+                                          prev.map((cc, i) =>
+                                            i !== ci
+                                              ? cc
+                                              : {
+                                                  ...cc,
+                                                  series: cc.series.map((ss, j) =>
+                                                    j !== si
+                                                      ? ss
+                                                      : {
+                                                          ...ss,
+                                                          values: ss.values.map((x, k) =>
+                                                            k === vi ? Number(e.target.value) || 0 : x,
+                                                          ),
+                                                        },
+                                                  ),
+                                                },
+                                          ),
+                                        )
+                                      }
+                                      className="h-9 w-28 text-sm"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {diagrams.length ? (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-panel">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Workflow className="h-4 w-4 text-primary" /> Diagrams
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Each shape in your existing diagram keeps its place; only the label changes.
+                </p>
+                <div className="mt-5 space-y-5">
+                  {diagrams.map((d, di) => (
+                    <div key={d.id} className="rounded-xl bg-secondary/40 p-3">
+                      <div className="mb-2 text-xs uppercase tracking-wide text-accent">
+                        {d.slide ? `Slide ${d.slide}` : "Diagram"} · {d.nodes.length} shapes
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {d.nodes.map((n, ni) => (
+                          <Input
+                            key={ni}
+                            value={n}
+                            aria-label={`Diagram label ${ni + 1}`}
+                            onChange={(e) =>
+                              setDiagrams((prev) =>
+                                prev.map((dd, i) =>
+                                  i !== di
+                                    ? dd
+                                    : {
+                                        ...dd,
+                                        nodes: dd.nodes.map((x, j) => (j === ni ? e.target.value : x)),
+                                      },
+                                ),
+                              )
+                            }
+                            className="h-9 text-sm"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
+
         ) : null}
       </section>
 
