@@ -305,11 +305,25 @@ function Index() {
             </p>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button
+              type="button"
+              disabled={busy || building}
+              size="lg"
+              onClick={(e) => onSubmit(e, true)}
+            >
+              {busy || building ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {busy ? "Writing your deck…" : building ? "Building…" : "Generate & download deck"}
+            </Button>
+            <Button type="submit" disabled={busy || building} size="lg" variant="secondary">
+              Generate, then let me edit
+            </Button>
+          </div>
 
-          <Button type="submit" disabled={busy} className="w-full" size="lg">
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {busy ? "Writing your deck…" : "Generate populated deck"}
-          </Button>
         </form>
 
         {result ? (
