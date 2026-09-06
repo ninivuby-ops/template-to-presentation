@@ -49,17 +49,25 @@ export const inspectTemplate = createServerFn({ method: "POST" })
 export const generateDeck = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => Input.parse(d))
   .handler(async ({ data }) => {
-    const { extractPlaceholders, extractMedia } = await import("./pptx.server");
+    const { extractPlaceholders, extractMedia, extractStructures } = await import("./pptx.server");
     const bytes = b64ToBytes(data.fileBase64);
     const { placeholders, slideCount } = extractPlaceholders(bytes);
     const media = extractMedia(bytes);
+    const { tables, charts, diagrams } = extractStructures(bytes);
 
-    if (!placeholders.length) {
+    const empty = {
+      slideCount,
+      media,
+      placeholders: [] as { id: string; slide: number; shape: string; kind: string; text: string }[],
+      tables,
+      charts,
+      diagrams,
+    };
+
+    if (!placeholders.length && !tables.length && !charts.length && !diagrams.length) {
       return {
-        slideCount,
-        media,
-        placeholders: [] as { id: string; slide: number; shape: string; kind: string; text: string }[],
-        note: "No empty or marked placeholders were found in this template, so there is no text to write.",
+        ...empty,
+        note: "No empty or marked placeholders, tables, charts or diagrams were found in this template.",
       };
     }
 
@@ -81,17 +89,30 @@ export const generateDeck = createServerFn({ method: "POST" })
       data.details ? `Extra source material provided by the user:\n${data.details}` : "",
       "",
       "STRICT RULES:",
-      "- Only produce replacement text for the placeholder ids given below.",
-      "- Never invent new slides, headings, or bullet groups; the deck structure is fixed.",
+      "- Only produce replacement content for the ids given below.",
+      "- Never invent new slides, rows, columns, series or nodes; every structure is fixed in size.",
       "- Respect each slide's existing headings and prescribed pointers (given in slide_context) and stay on that subject.",
       "- A `title` role gets a short line (max 8 words). Body placeholders get one concise sentence or bullet (max 28 words).",
       "- Plain text only: no markdown, no bullet characters, no quotes around the text, no line breaks.",
-      "- Do not fabricate specific statistics, dates, customer names or citations.",
+      "- Tables: return exactly the same number of rows and cells as given. Keep header rows as headers. Table cells are short (max 6 words).",
+      "- Charts: keep the same number of categories and the same number of values per series as given. Category labels are short. Values are plain numbers, realistic and internally consistent.",
+      "- Diagrams: return exactly the same number of nodes, in order. Empty nodes stay empty (\"\"). Node labels are max 6 words.",
+      "- Only use figures the user supplied; where none exist, use clearly plausible round illustrative numbers and never present them as sourced facts.",
+      "- Do not fabricate specific statistics, dates, customer names or citations in text.",
       "",
-      "Placeholders:",
+      "Text placeholders:",
       JSON.stringify(brief),
       "",
-      'Reply with JSON only, exactly: {"items":[{"id":"<id>","text":"<replacement>"}]} covering every id.',
+      "Tables:",
+      JSON.stringify(tables),
+      "",
+      "Charts:",
+      JSON.stringify(charts),
+      "",
+      "Diagrams:",
+      JSON.stringify(diagrams),
+      "",
+      'Reply with JSON only, exactly: {"items":[{"id":"<id>","text":"<replacement>"}],"tables":[{"id":"<id>","rows":[["<cell>"]]}],"charts":[{"id":"<id>","title":"<title>","categories":["<label>"],"series":[{"name":"<name>","values":[0]}]}],"diagrams":[{"id":"<id>","nodes":["<label>"]}]} covering every id.',
     ]
       .filter(Boolean)
       .join("\n");
@@ -122,12 +143,36 @@ export const generateDeck = createServerFn({ method: "POST" })
 
     const raw = text.match(/\{[\s\S]*\}/)?.[0] ?? "{}";
     const parsed = z
-      .object({ items: z.array(z.object({ id: z.string(), text: z.string() })).default([]) })
+      .object({
+        items: z.array(z.object({ id: z.string(), text: z.string() })).default([]),
+        tables: z
+          .array(z.object({ id: z.string(), rows: z.array(z.array(z.string())) }))
+          .default([]),
+        charts: z
+          .array(
+            z.object({
+              id: z.string(),
+              title: z.string().default(""),
+              categories: z.array(z.string()).default([]),
+              series: z
+                .array(z.object({ name: z.string().default(""), values: z.array(z.number()).default([]) }))
+                .default([]),
+            }),
+          )
+          .default([]),
+        diagrams: z.array(z.object({ id: z.string(), nodes: z.array(z.string()) })).default([]),
+      })
       .safeParse(JSON.parse(raw));
     if (!parsed.success) throw new Error("The AI response could not be read. Please try again.");
 
     const values: Record<string, string> = {};
     for (const item of parsed.data.items) values[item.id] = item.text.trim();
+
+    const byId = <T extends { id: string }>(list: T[]) =>
+      Object.fromEntries(list.map((x) => [x.id, x])) as Record<string, T>;
+    const tableOut = byId(parsed.data.tables);
+    const chartOut = byId(parsed.data.charts);
+    const diagramOut = byId(parsed.data.diagrams);
 
     return {
       slideCount,
@@ -138,6 +183,28 @@ export const generateDeck = createServerFn({ method: "POST" })
         shape: p.shape,
         kind: p.kind,
         text: values[p.id] ?? p.current,
+      })),
+      tables: tables.map((t) => ({
+        ...t,
+        rows: t.rows.map((row, ri) =>
+          row.map((cell, ci) => tableOut[t.id]?.rows?.[ri]?.[ci] ?? cell),
+        ),
+      })),
+      charts: charts.map((c) => {
+        const g = chartOut[c.id];
+        return {
+          ...c,
+          title: g?.title || c.title,
+          categories: c.categories.map((cat, i) => g?.categories?.[i] ?? cat),
+          series: c.series.map((s2, i) => ({
+            name: g?.series?.[i]?.name || s2.name,
+            values: s2.values.map((v, vi) => g?.series?.[i]?.values?.[vi] ?? v),
+          })),
+        };
+      }),
+      diagrams: diagrams.map((d) => ({
+        ...d,
+        nodes: d.nodes.map((n, i) => (n.trim() ? diagramOut[d.id]?.nodes?.[i] ?? n : n)),
       })),
       note: "",
     };
@@ -150,13 +217,25 @@ const BuildInput = z.object({
     .array(z.object({ id: z.string(), fileBase64: z.string().min(10) }))
     .max(40)
     .default([]),
+  tables: z.array(z.object({ id: z.string(), rows: z.array(z.array(z.string())) })).default([]),
+  charts: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string().default(""),
+        categories: z.array(z.string()).default([]),
+        series: z.array(z.object({ name: z.string().default(""), values: z.array(z.number()).default([]) })).default([]),
+      }),
+    )
+    .default([]),
+  diagrams: z.array(z.object({ id: z.string(), nodes: z.array(z.string()) })).default([]),
 });
 
 /** Step 3 — write the edited text and swapped media into the very same file. */
 export const buildDeckFile = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => BuildInput.parse(d))
   .handler(async ({ data }) => {
-    const { buildDeck } = await import("./pptx.server");
+    const { buildDeckFull } = await import("./pptx.server");
     const bytes = b64ToBytes(data.fileBase64);
 
     const values: Record<string, string> = {};
@@ -165,6 +244,19 @@ export const buildDeckFile = createServerFn({ method: "POST" })
     const media: Record<string, Uint8Array> = {};
     for (const m of data.media) media[m.id] = b64ToBytes(m.fileBase64);
 
-    const { bytes: out, filled, replacedMedia } = buildDeck(bytes, values, media);
-    return { filled, replacedMedia, fileBase64: bytesToB64(out) };
+    const complex = {
+      tables: Object.fromEntries(data.tables.map((t) => [t.id, t.rows])),
+      charts: Object.fromEntries(
+        data.charts.map((c) => [c.id, { title: c.title, categories: c.categories, series: c.series }]),
+      ),
+      diagrams: Object.fromEntries(data.diagrams.map((d) => [d.id, d.nodes])),
+    };
+
+    const { bytes: out, filled, replacedMedia, filledComplex } = buildDeckFull(
+      bytes,
+      values,
+      media,
+      complex,
+    );
+    return { filled, replacedMedia, filledComplex, fileBase64: bytesToB64(out) };
   });
