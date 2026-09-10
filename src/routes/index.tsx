@@ -302,7 +302,7 @@ function Index() {
                 id="topic"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="Q3 supply chain review"
+                placeholder="AI-based flood early warning system"
                 className="mt-2"
               />
             </div>
@@ -312,7 +312,7 @@ function Index() {
                 id="aud"
                 value={audience}
                 onChange={(e) => setAudience(e.target.value)}
-                placeholder="Board of directors"
+                placeholder="SIH evaluation jury"
                 className="mt-2"
               />
             </div>
@@ -677,12 +677,12 @@ function Index() {
         <div className="mx-auto max-w-6xl px-6 py-14">
           <h2 className="text-2xl font-semibold text-foreground">How it works</h2>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Upload, read the placeholders out of the file, write only that text with AI, put it back in
-            place, and hand the same file back to you.
+            We open the official SIH 2026 idea format, read its placeholders, write only that text with
+            AI, put it back in place, and hand the finished file to you.
           </p>
           <img
             src={architecture}
-            alt="Workflow: upload template, parse placeholders, generate content, inject text, download"
+            alt="Workflow: official SIH format, parse placeholders, generate content, inject text, download"
             loading="lazy"
             width={1600}
             height={704}
