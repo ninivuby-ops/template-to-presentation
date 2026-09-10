@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -22,23 +22,24 @@ import {
   Sparkles,
 } from "lucide-react";
 import { generateDeck, buildDeckFile } from "@/lib/deck.functions";
+import sihTemplate from "@/assets/sih2026-template.pptx.asset.json";
 import hero from "@/assets/hero.jpg";
 import architecture from "@/assets/architecture.jpg";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "DeckFill — AI fills your PPTX template, exactly as designed" },
+      { title: "SIH 2026 Deck Builder — AI fills the official idea format" },
       {
         name: "description",
         content:
-          "Upload a PowerPoint template, give a topic, and get every placeholder filled by AI with the original slides, fonts and layout untouched.",
+          "Write your topic and get a finished Smart India Hackathon 2026 idea presentation, built on the official format with every heading, footer and layout untouched.",
       },
-      { property: "og:title", content: "DeckFill — AI fills your PPTX template" },
+      { property: "og:title", content: "SIH 2026 Deck Builder" },
       {
         property: "og:description",
         content:
-          "Upload a PowerPoint template and download a fully populated deck that keeps your exact structure, fonts and colours.",
+          "Generate a complete Smart India Hackathon 2026 idea presentation in the official format with one click.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -58,10 +59,10 @@ const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const rules = [
-  "Only your uploaded file is used — no template of ours.",
+  "Always the official SIH 2026 idea format — no other layout.",
   "Slide order, section headings and pointers stay untouched.",
   "No slide is added or removed.",
-  "Text goes only into the template's own placeholders.",
+  "Text goes only into the format's own placeholders.",
   "Fonts, colours and layout are preserved run-for-run.",
 ];
 
