@@ -114,7 +114,7 @@ function Index() {
   const onSubmit = async (e: React.FormEvent, oneClick = false) => {
     e.preventDefault();
     if (!file) {
-      toast.error("Please choose a .pptx template first.");
+      toast.error("The SIH 2026 format is still loading — try again in a second.");
       return;
     }
     if (wordCount(details) > 40000) {
