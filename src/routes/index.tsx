@@ -246,15 +246,16 @@ function Index() {
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 py-16 md:grid-cols-2 md:py-24">
           <div>
             <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-xs uppercase tracking-widest text-accent">
-              <ShieldCheck className="h-3.5 w-3.5" /> Template-faithful
+              <ShieldCheck className="h-3.5 w-3.5" /> SIH 2026 format only
             </p>
             <h1 className="text-4xl font-semibold leading-tight tracking-tight text-foreground md:text-5xl">
-              Your template. Filled in by AI. Nothing else moved.
+              Your idea, written into the official SIH 2026 deck.
             </h1>
             <p className="mt-5 max-w-lg text-muted-foreground">
-              Upload a PowerPoint file, tell us the subject, and every blank or marked placeholder comes
-              back written — with the same slides, order, fonts and colours you designed.
+              Describe your problem statement and solution — every section of the Smart India Hackathon
+              2026 idea format comes back written, with the headings, footers and styling untouched.
             </p>
+
             <ul className="mt-6 space-y-2 text-sm text-muted-foreground">
               {rules.map((r) => (
                 <li key={r} className="flex gap-2">
@@ -280,22 +281,19 @@ function Index() {
           className="space-y-5 rounded-2xl border border-border bg-card p-6 shadow-panel md:p-8"
         >
           <div>
-            <Label htmlFor="tpl">PowerPoint template (.pptx)</Label>
-            <label
-              htmlFor="tpl"
-              className="mt-2 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border bg-secondary/40 px-4 py-6 text-sm text-muted-foreground transition-colors hover:border-primary"
-            >
-              <UploadCloud className="h-5 w-5 text-primary" />
-              {file ? file.name : "Choose or drop your template file"}
-            </label>
-            <input
-              id="tpl"
-              type="file"
-              accept=".pptx"
-              className="sr-only"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
+            <Label>Presentation format</Label>
+            <div className="mt-2 flex items-center gap-3 rounded-xl border border-border bg-secondary/40 px-4 py-5 text-sm">
+              <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
+              <span className={templateError ? "text-destructive" : "text-muted-foreground"}>
+                {templateError
+                  ? "The SIH 2026 format could not be loaded — please refresh the page."
+                  : file
+                    ? "Official SIH 2026 idea format — ready"
+                    : "Loading the official SIH 2026 idea format…"}
+              </span>
+            </div>
           </div>
+
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
