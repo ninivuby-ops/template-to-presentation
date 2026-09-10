@@ -70,6 +70,7 @@ function Index() {
   const run = useServerFn(generateDeck);
   const build = useServerFn(buildDeckFile);
   const [file, setFile] = useState<File | null>(null);
+  const [templateError, setTemplateError] = useState(false);
   const [topic, setTopic] = useState("");
   const [audience, setAudience] = useState("");
   const [details, setDetails] = useState("");
@@ -83,7 +84,26 @@ function Index() {
   const [charts, setCharts] = useState<Charts>([]);
   const [diagrams, setDiagrams] = useState<Diagrams>([]);
 
+  useEffect(() => {
+    let alive = true;
+    fetch(sihTemplate.url)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error("load"))))
+      .then((b) => {
+        if (alive)
+          setFile(
+            new File([b], "SIH2026-Idea-Presentation.pptx", {
+              type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            }),
+          );
+      })
+      .catch(() => alive && setTemplateError(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const readBase64 = (f: File) =>
+
     new Promise<string>((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
